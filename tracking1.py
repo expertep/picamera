@@ -24,14 +24,14 @@ def stalable (sumAreaDetect):
 # Are we using the Pi Camera?
 usingPiCamera = True
 # Set initial frame size.
-frameSize = (600, 400)
+frameSize = (300, 200)
 
 countPeople = 0
 
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
 ap.add_argument("-v", "--video", help="path to the video file")
-ap.add_argument("-a", "--min-area", type=int, default=frameSize[0]*frameSize[1]*0.005, help="minimum area size")
+ap.add_argument("-a", "--min-area", type=int, default=1000, help="minimum area size")
 args = vars(ap.parse_args())
 
 # Initialize mutithreading the video stream.
@@ -55,7 +55,7 @@ idle_time = 30
 reset = False
 
 grid = frameSize[0]/5
-doorsize = frameSize[0]/6
+doorsize = 100
 center = frameSize[0]/2
 bbox = []
 sumAreaDetect  = [0,0,0]
@@ -109,11 +109,11 @@ while True:
     gray = cv2.GaussianBlur(grayFace, (21, 21), 0)
 
     # if the first frame is None, initialize it
-    if firstFrame is None and idle_time >= 0:
+    if firstFrame is None and idle_time > 10:
         firstFrame = gray
         continue
     #if status == "motion":
-    if idle_time >= 0:
+    if idle_time > 10:
         # Difference between current frame and background
         frame_delta = cv2.absdiff(firstFrame,gray)
         # Create a threshold to exclude minute movements
@@ -138,33 +138,45 @@ while True:
                 recArea =  cv2.contourArea(cnts[i])
                 if idle_time%2 == 0:
                     sumArea += recArea
-                #cntsArea.append(recArea)
+                cntsArea.append(recArea)
                 # If this contour is larger than the largest
-                if i != 0 and int(cv2.contourArea(cnts[i])) > int(cv2.contourArea(cnts[largest])):
-                    #This contour is the largest
-                    largest = i
+                #if i != 0 and int(cv2.contourArea(cnts[i])) > int(cv2.contourArea(cnts[largest])):
+                    # This contour is the largest
+                    #largest = i
+                    #larger = largest
 
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
+            #sort
+            for passnum in range(len(cntsArea)-1,0,-1):
+                for i in range(passnum):
+                    if cntsArea[i]<cntsArea[i+1]:
+                        temp = cntsArea[i]
+                        temp1 = cnts[i]
+                        cntsArea[i] = cntsArea[i+1]
+                        cnts[i] = cnts[i+1]
+                        cntsArea[i+1] = temp
+                        cnts[i+1] = temp1
                         
-            #print(cntsArea)
-            if cv2.contourArea(cnts[largest]) > args["min_area"] :
-                # Create a bounding box for our contour
-                (x,y,w,h) = cv2.boundingRect(cnts[largest])
-                # Convert from float to int, and scale up our boudning box
-                (x,y,w,h) = (int(x),int(y),int(w),int(h))
-                # Initialize tracker
-                bbox = (x,y,w,h)
 
-                #cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2)
+            for i in range(int(lencnts/5)) :
+                if cntsArea[i] > args["min_area"] :
+                    # Create a bounding box for our contour
+                    (x,y,w,h) = cv2.boundingRect(cnts[i])
+                    # Convert from float to int, and scale up our boudning box
+                    (x,y,w,h) = (int(x),int(y),int(w),int(h))
+                    # Initialize tracker
+                    bbox = (x,y,w,h)
+                    print(lencnts)
+                    cv2.rectangle(frame,(x,y),(x+w,y+h),(255,50,0),2)
 
-                #crop_gray_frame = grayFace[y:y+h, x:x+w]
-                #faces = faceRec.detect_faces(crop_gray_frame)
-                #for (x,y,w,h) in faces:
-                #    cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2)
-                # Switch from finding motion to tracking
-                #cv2.imshow("Camera1",crop_gray_frame)
-                status = 'tracking'
+                    #crop_gray_frame = grayFace[y:y+h, x:x+w]
+                    #faces = faceRec.detect_faces(crop_gray_frame)
+                    #for (x,y,w,h) in faces:
+                    #    cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2)
+                    # Switch from finding motion to tracking
+                    #cv2.imshow("Camera1",crop_gray_frame)
+                    
+                    #status = 'tracking'
         if idle_time%2 == 0:
             sumAreaDetect[0] = sumArea
     # If we are tracking
@@ -174,23 +186,21 @@ while True:
             p1 = (int(bbox[0]), int(bbox[1]))
             p2 = (int(bbox[0] + bbox[2]), int(bbox[1] + bbox[3]))
             cv2.rectangle(frame,p1,p2,(0,0,255),2)
-            #set center
-            p1 = (int(bbox[0]+bbox[2]/2), int(bbox[1]+bbox[3]/2))
             if firstTrack is None:
-                firstTrack = p1[0]
+                firstTrack = p1
                 continue
             #check line movement
-            print(p1[0])
+
             if not pointMove:
                 pointMove.append(p1[0])
             if abs(p1[0]-pointMove[len(pointMove)-1]) > grid + bbox[2]:
                 reset = True
             else : pointMove.append(p1[0])
-            #if len(pointMove) > 10 :
-             #   pointMove.pop(0)
+            if len(pointMove) > 10 :
+                pointMove.pop(0)
                 #come in
             if not reset :
-                if (firstTrack > center-doorsize and firstTrack < center + doorsize):
+                if (firstTrack[0] > center-doorsize and firstTrack[0] < center + doorsize):
                     if (p1[0] <= grid or p1[0] >= frameSize[0] - grid):
                         #if stalable(sumAreaDetect) or p1[0]<=0 or p2[0] >= frameSize[0]:
                         countPeople += 1
@@ -198,7 +208,7 @@ while True:
                     #if p1[0] <= grid*4 and p1[0] >= grid*2:
                         #filename = "/home/pi/in/"+str(time.time())+".jpg"
                         #cv2.imwrite(filename, frame)
-                elif firstTrack <= grid or firstTrack >= frameSize[0]-grid:
+                elif firstTrack[0] <= grid or firstTrack[0] >= frameSize[0]-grid:
                     if p1[0] > center - doorsize and p1[0] < center + doorsize:
                         if stalable(sumAreaDetect) :
                             if countPeople > 0:
@@ -233,7 +243,6 @@ while True:
         # Reset background, frame, and tracker
         firstTrack = None
         #firstFrame = None
-        print(pointMove)
         bbox = []
         sumAreaDetect = [0,0,0]
         pointMove = []
@@ -243,7 +252,7 @@ while True:
     if idle_time%2 == 0:
         for i in range (len(sumAreaDetect)-1) :
             sumAreaDetect[i+1] = sumAreaDetect[i]
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    if cv2.waitKey(1) and 0xFF == ord('q'):
         break
 
 # Cleanup before exit.
