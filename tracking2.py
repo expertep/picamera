@@ -21,31 +21,32 @@ def stalable (sumAreaDetect):
     if dif/lenSum <=0:
         return True
     else: return False
-def pedestrian (image, frame):
+def pedestrian (image, gray):
     # initialize the HOG descriptor/person detector
     hog = cv2.HOGDescriptor()
     hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
     # detect people in the image
-    (rects, weights) = hog.detectMultiScale(frame, winStride=(4, 4),
+    (rects, weights) = hog.detectMultiScale(gray, winStride=(4, 4),
 		padding=(8, 8), scale=1.05)
     orig = image.copy()
     # draw the original bounding boxes
     for (x, y, w, h) in rects:
-        cv2.rectangle(orig, (x, y), (x + w, y + h), (0, 0, 255), 2)
+        #cv2.rectangle(orig, (x, y), (x + w, y + h), (0, 0, 255), 2)
+        cv2.rectangle(image, (x, y), (x + w, y + h), (200, 0, 255), 2)
     # apply non-maxima suppression to the bounding boxes using a
     # fairly large overlap threshold to try to maintain overlapping
     # boxes that are still people
-    rects = np.array([[x, y, x + w, y + h] for (x, y, w, h) in rects])
-    pick = non_max_suppression(rects, probs=None, overlapThresh=0.65)
+    #rects = np.array([[x, y, x + w, y + h] for (x, y, w, h) in rects])
+    #pick = non_max_suppression(rects, probs=None, overlapThresh=0.65)
 
     # draw the final bounding boxes
-    for (xA, yA, xB, yB) in pick:
-        cv2.rectangle(image, (xA, yA), (xB, yB), (0, 100, 100), 2)
+    #for (xA, yA, xB, yB) in pick:
+    #    cv2.rectangle(image, (xA, yA), (xB, yB), (0, 200,100), 2)
     return image
 # Are we using the Pi Camera?
 usingPiCamera = True
 # Set initial frame size.
-frameSize = (600, 400)
+frameSize = (300, 200)
 
 countPeople = 0
 
@@ -62,6 +63,7 @@ if args["video"] is None :
 else :
     vs = cv2.VideoCapture(args["video"])
     usingPiCamera = False
+#vs = cv2.VideoCapture('/home/pi/Desktop/videoplayback.avi')
 # Allow the camera to warm up.
 time.sleep(2.0)
  
@@ -135,18 +137,19 @@ while True:
     #if status == "motion":
     if idle_time >= 0:
         # Difference between current frame and background
-        frame_delta = cv2.absdiff(firstFrame,gray)
+        frame_delta = cv2.absdiff(firstFrame,grayFace)
         # Create a threshold to exclude minute movements
         thresh = cv2.threshold(frame_delta,100,255,cv2.THRESH_BINARY)[1]
 
         #Dialate threshold to further reduce error
         thresh = cv2.dilate(thresh,None,iterations=2)
         # Check for contours in our threshold
-        _,cnts,hierarchy = cv2.findContours(thresh,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
-        lencnts = int(len(cnts))
+        #_,cnts,hierarchy = cv2.findContours(thresh,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+        #lencnts = int(len(cnts))
         # Check each contour
         sumArea= 0
         cntsArea = []
+        frame = pedestrian(frame,thresh)
         if lencnts != 0:
             # If the contour is big enough
             #frame = pedestrian(frame,frame_delta)
@@ -230,15 +233,16 @@ while True:
     #while tmp <= frameSize[0]:
     #    cv2.putText(frame, "|" ,(int(tmp), int(frameSize[1])-5),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
     #    tmp += grid
-
+    """
     if ((sumAreaDetect[0]>frameSize[0]*frameSize[1]*0.9) or (idle_time%55==0 and stalable(sumAreaDetect))):
         firstTrack = None
         firstFrame = None
         status = 'motion'
         bbox = []
         pointMove = []
+    """
     # Show our webcam
-    #cv2.imshow("frame_delta", frame_delta)
+    cv2.imshow("frame_delta", frame_delta)
     #cv2.imshow("Thresh", thresh)
     cv2.imshow("Camera",frame)
 

@@ -8,6 +8,7 @@ from imutils.video import VideoStream
 import datetime
 import argparse
 import faceRecognize as faceRec
+from random import randint
 
 def stalable (sumAreaDetect):
     dif = 0
@@ -21,17 +22,54 @@ def stalable (sumAreaDetect):
         return True
     else: return False
 
+def findTrack(bbox,pointMove):
+    index = -1
+    if pointMove:
+        # set dif of last
+        diffMinX = abs(pointMove[len(pointMove)-1][len(pointMove[len(pointMove)-1])-1][0] - bbox[0])
+        diffMinY = abs(pointMove[len(pointMove)-1][len(pointMove[len(pointMove)-1])-1][1] - bbox[1])
+        diffMin = (pow(diffMinX,2) + pow(diffMinY,2))**(1/2)
+        index = len(pointMove)-1
+        for i in range(len(pointMove)-1):
+            diffX = abs(pointMove[i][len(pointMove[i])-1][0] - bbox[0])
+            diffY = abs(pointMove[i][len(pointMove[i])-1][1] - bbox[1])
+            diff = (pow(diffX,2) + pow(diffY,2))**(1/2)
+            if diff < diffMin:
+                index = i
+                diffMin = diff
+        if diffMin > 50 + bbox[2]:
+            index = -1
+    return index
+
+def tooClose(bboxs,rec,frameSize):
+    (x,y,w,h) = rec
+    print(rec)
+    rec = setCenter(rec)
+    for bbox in bboxs:
+        bbox = setCenter(bbox)
+        difX = abs(bbox[0] - rec[0])
+        difY = abs(bbox[1] - rec[1])
+        if difX < bbox[0]-rec[0]+10:
+            return False
+        if difY < bbox[1]-rec[1]+30:
+            return False
+    return True
+
+def setCenter(box):
+    return (int(box[0]+box[2]/2),int(box[1]+box[3]/2))
+        
 # Are we using the Pi Camera?
 usingPiCamera = True
 # Set initial frame size.
-frameSize = (300, 200)
+frameSize = (600, 400)
 
 countPeople = 0
 
 # construct the argument parser and parse the arguments
 ap = argparse.ArgumentParser()
 ap.add_argument("-v", "--video", help="path to the video file")
-ap.add_argument("-a", "--min-area", type=int, default=1000, help="minimum area size")
+#ap.add_argument("-a", "--min-area", type=int, default=frameSize[0]*frameSize[1]*0.004167, help="minimum area size")
+ap.add_argument("-a", "--min-area", type=int, default=frameSize[0]*frameSize[1]*0.004, help="minimum area size")
 args = vars(ap.parse_args())
 
 # Initialize mutithreading the video stream.
@@ -48,19 +86,20 @@ time.sleep(2.0)
 timeCheck = time.time()
 
 firstFrame = None
-firstTrack = None
+firstTrack = []
 status = 'motion'
 # How long have we been tracking
 idle_time = 30
 reset = False
 
 grid = frameSize[0]/5
-doorsize = 100
+doorsize = frameSize[0]/6
 center = frameSize[0]/2
 bbox = []
 sumAreaDetect  = [0,0,0]
 pointMove = []
 lencnts = 0
+trackCount = 0
 
 pathToDB = "/home/pi/FaceRecognizer/sorted_output_images"
 #train
@@ -86,7 +125,7 @@ while True:
         break
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    grayFace = cv2.equalizeHist(gray)
+    gray = cv2.equalizeHist(gray)
     """
     faces = faceRec.detect_faces(grayFace)
     for (x,y,w,h) in faces:
@@ -106,10 +145,10 @@ while True:
 
         cv2.putText(frame, box_text, (x-20, y-5), cv2.FONT_HERSHEY_PLAIN, 1.3, (25,0,225), 2)
     """
-    gray = cv2.GaussianBlur(grayFace, (21, 21), 0)
+    gray = cv2.GaussianBlur(gray, (21, 21), 0)
 
     # if the first frame is None, initialize it
-    if firstFrame is None and idle_time > 10:
+    if firstFrame is None and idle_time > 8:
         firstFrame = gray
         continue
     #if status == "motion":
@@ -128,8 +167,6 @@ while True:
         sumArea= 0
         cntsArea = []
         if lencnts != 0:
-            # If the contour is big enough
-
             # Set largest contour to first contour
             largest = 0
             # For each contour
@@ -144,63 +181,69 @@ while True:
                     # This contour is the largest
                     #largest = i
                     #larger = largest
-
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            #sort
-            for passnum in range(len(cntsArea)-1,0,-1):
+            #sort array
+            for passnum in range(lencnts-1,0,-1):
                 for i in range(passnum):
-                    if cntsArea[i]<cntsArea[i+1]:
+                    if cntsArea[i] < cntsArea[i+1]:
                         temp = cntsArea[i]
                         temp1 = cnts[i]
                         cntsArea[i] = cntsArea[i+1]
                         cnts[i] = cnts[i+1]
                         cntsArea[i+1] = temp
                         cnts[i+1] = temp1
-                        
-
-            for i in range(int(lencnts/5)) :
-                if cntsArea[i] > args["min_area"] :
+            trackCount=int(lencnts/6)
+            #select
+            bbox = []
+            for i in range(lencnts) :
+                if cntsArea[i] > args["min_area"]:
                     # Create a bounding box for our contour
                     (x,y,w,h) = cv2.boundingRect(cnts[i])
                     # Convert from float to int, and scale up our boudning box
                     (x,y,w,h) = (int(x),int(y),int(w),int(h))
-                    # Initialize tracker
-                    bbox = (x,y,w,h)
-                    print(lencnts)
-                    cv2.rectangle(frame,(x,y),(x+w,y+h),(255,50,0),2)
+                    rec=(x,y,w,h)
+                    if bbox==[] or tooClose(bbox,rec,frameSize):
 
-                    #crop_gray_frame = grayFace[y:y+h, x:x+w]
-                    #faces = faceRec.detect_faces(crop_gray_frame)
-                    #for (x,y,w,h) in faces:
-                    #    cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2)
-                    # Switch from finding motion to tracking
-                    #cv2.imshow("Camera1",crop_gray_frame)
-                    
-                    #status = 'tracking'
+                        #cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 255, 0), 2)
+                        # Initialize tacker
+                        status = 'tracking'
+                        if len(bbox) < trackCount:
+                            bbox.append((x,y,w,h))
+                            #pointMove.append([])
+                        else :
+                            break
         if idle_time%2 == 0:
             sumAreaDetect[0] = sumArea
     # If we are tracking
     if status == 'tracking':
-        #for i in range(2):
+        for i in range(len(bbox)):
             # Create a visible rectangle for our viewing pleasure
-            p1 = (int(bbox[0]), int(bbox[1]))
-            p2 = (int(bbox[0] + bbox[2]), int(bbox[1] + bbox[3]))
-            cv2.rectangle(frame,p1,p2,(0,0,255),2)
-            if firstTrack is None:
-                firstTrack = p1
-                continue
-            #check line movement
+            p0 = (int(bbox[i][0]), int(bbox[i][1]))
+            p2 = (int(bbox[i][0] + bbox[i][2]), int(bbox[i][1] + bbox[i][3]))
 
-            if not pointMove:
-                pointMove.append(p1[0])
-            if abs(p1[0]-pointMove[len(pointMove)-1]) > grid + bbox[2]:
+            #set center
+            p1 = setCenter(bbox[i])
+            #find continous track
+            indexTrack = findTrack(bbox[i],pointMove)
+            #set new track
+            if indexTrack == -1:
+                indexTrack = len(firstTrack)
+                firstTrack.append(p1[0])
+                pointMove.append([])
+                pointMove[indexTrack].append(p1)
+                continue
+            cv2.rectangle(frame,p0,p2,(255,int(255/(indexTrack+1)),50*indexTrack),2)
+            
+            #check line movement
+            if abs(p1[0]-pointMove[indexTrack][len(pointMove[indexTrack])-1][0]) > grid + bbox[i][2]:
                 reset = True
-            else : pointMove.append(p1[0])
-            if len(pointMove) > 10 :
-                pointMove.pop(0)
-                #come in
+            else : pointMove[indexTrack].append(p1)
+            if len(pointMove[indexTrack]) > 3 :
+                pointMove[indexTrack].pop(0)
+
+            #come in
             if not reset :
-                if (firstTrack[0] > center-doorsize and firstTrack[0] < center + doorsize):
+                if (firstTrack[indexTrack] > center-doorsize and firstTrack[indexTrack] < center + doorsize):
                     if (p1[0] <= grid or p1[0] >= frameSize[0] - grid):
                         #if stalable(sumAreaDetect) or p1[0]<=0 or p2[0] >= frameSize[0]:
                         countPeople += 1
@@ -208,12 +251,30 @@ while True:
                     #if p1[0] <= grid*4 and p1[0] >= grid*2:
                         #filename = "/home/pi/in/"+str(time.time())+".jpg"
                         #cv2.imwrite(filename, frame)
-                elif firstTrack[0] <= grid or firstTrack[0] >= frameSize[0]-grid:
+                elif firstTrack[indexTrack] <= grid or firstTrack[indexTrack] >= frameSize[0]-grid:
                     if p1[0] > center - doorsize and p1[0] < center + doorsize:
                         if stalable(sumAreaDetect) :
                             if countPeople > 0:
                                 countPeople -= 1
                                 reset = True
+        if len(firstTrack)>trackCount:
+            for i in range(len(firstTrack)):
+                if not ((firstTrack[i] > center-doorsize and firstTrack[i] < center + doorsize) or (firstTrack[i] < grid or firstTrack[i]>frameSize[0]-grid)):
+                    #if abs(firstTrack[i]-pointMove[i][len(pointMove)-1]):
+                    firstTrack.pop(i)
+                    pointMove.pop(i)
+                    break
+        print(pointMove)
+        print(firstTrack)
+    #draw
+    '''
+    for line in pointMove :
+        i = pointMove.index(line)+1
+        y = 10*i
+        color = (i*60,int(255/i),200)
+        for j in range(len(line)-1):
+            cv2.line(frame, (line[j], y), (line[j+1], y), color, 2)
+    '''
     cv2.putText(frame, "People: "+str(countPeople), (10, 20),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
     tmp = 0
     cv2.putText(frame, "|" ,(int(center-doorsize), int(frameSize[1])-5),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
@@ -223,7 +284,7 @@ while True:
     #    tmp += grid
 
     if ((sumAreaDetect[0]>frameSize[0]*frameSize[1]*0.9) or (idle_time%55==0 and stalable(sumAreaDetect))):
-        firstTrack = None
+        firstTrack = []
         firstFrame = None
         status = 'motion'
         bbox = []
@@ -238,11 +299,11 @@ while True:
         status = 'motion'
         # Reset timer
         idle_time = 0
-        print ("reset")
+        print("reset")
         reset = False
         # Reset background, frame, and tracker
-        firstTrack = None
-        #firstFrame = None
+        firstTrack = []
+        #firstFrame = []
         bbox = []
         sumAreaDetect = [0,0,0]
         pointMove = []
@@ -252,6 +313,7 @@ while True:
     if idle_time%2 == 0:
         for i in range (len(sumAreaDetect)-1) :
             sumAreaDetect[i+1] = sumAreaDetect[i]
+    cv2.waitKey(0)
     if cv2.waitKey(1) and 0xFF == ord('q'):
         break
 
